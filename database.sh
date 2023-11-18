@@ -22,7 +22,7 @@ migrate() {
 	echo "Database migrated: $1"
 }
 
-delete() {
+drop() {
 	rm "$DATABASE"
 	echo "Database removed: $DATABASE"
 }
@@ -36,9 +36,9 @@ migrate)
 	shift
 	migrate "$@"
 	;;
-delete)
+drop)
 	shift
-	delete
+	drop
 	;;
 '')
 	die <<-USAGE
@@ -47,7 +47,7 @@ delete)
 		Commands:
 		    create      Create database
 		    migrate     Migrate database
-			delete      Delete database
+		    drop      Delete database
 	USAGE
 	;;
 *)
