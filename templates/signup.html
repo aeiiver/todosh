@@ -1,0 +1,19 @@
+{% extends "./templates/base.html" %}
+
+{% set title = "Signup" %}
+
+{% block body %}
+  <h1>Signup</h1>
+  <form action="/signup" method="POST">
+    <label for="email">Email</label>
+    <input type="email" name="email" id="email" value="{{ email if email is defined else "" }}" required />
+    <label for="password">Password</label>
+    <input type="password" name="password" id="password" value="{{ password if password is defined else "" }}" required />
+    <label for="confirm_password">Confirm password</label>
+    <input type="password" name="confirm_password" id="confirm_password" value="{{ confirm_password if confirm_password is defined else "" }}" required />
+    <input type="submit" value="Sign up" />
+    {% if email is defined %}
+      <p>Passwords don't match</p>
+    {% endif %}
+  </form>
+{% endblock %}

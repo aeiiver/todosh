@@ -1,0 +1,12 @@
+<nav>
+  <a href="/">Todosh</a>
+  <ul>
+    {% if user is defined and user > 0 %}
+      <li><a href="/">Todos</a></li>
+      <li><a href="/logout">Log out</a></li>
+    {% else %}
+      <li><a href="/login">Log in</a></li>
+      <li><a href="/signup">Sign up</a></li>
+    {% endif %}
+  </ul>
+</nav>

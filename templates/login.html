@@ -1,0 +1,17 @@
+{% extends "./templates/base.html" %}
+
+{% set title = "Login" %}
+
+{% block body %}
+  <h1>Login</h1>
+  <form action="/login" method="POST">
+    <label for="email">Email</label>
+    <input type="email" name="email" id="email" value="{{ email if email is defined else "" }}" required />
+    <label for="password">Password</label>
+    <input type="password" name="password" id="password" value="{{ password if password is defined else "" }}"  required />
+    <input type="submit" value="Login" />
+    {% if email is defined %}
+      <p>Bad credentials were provided or account not found</p>
+    {% endif %}
+  </form>
+{% endblock %}

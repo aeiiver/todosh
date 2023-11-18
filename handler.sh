@@ -32,7 +32,7 @@ add_field() {
 
 respond() {
 	printf '%s\r\n' "$response_rqline"
-	printf '%s' "$response_fields" | sed 's/!!!/\r\n/'
+	printf '%s' "$response_fields" | sed 's/!!!/\r\n/g'
 	printf '\r\n'
 	sed 's/$/\r/'
 }
@@ -45,14 +45,14 @@ respond_html() {
 
 respond_raw() {
 	printf '%s\r\n' "$response_rqline"
-	printf '%s' "$response_fields" | sed 's/!!!/\r\n/'
+	printf '%s' "$response_fields" | sed 's/!!!/\r\n/g'
 	printf '\r\n'
 	cat
 }
 
 respond_head() {
 	printf '%s\r\n' "$response_rqline"
-	printf '%s' "$response_fields" | sed 's/!!!/\r\n/'
+	printf '%s' "$response_fields" | sed 's/!!!/\r\n/g'
 	printf '\r\n'
 }
 
@@ -134,9 +134,39 @@ query() {
 
 # $1 - POST payload parameter
 data() {
-	sed -n '$s/.*'"$1"'=\([^&]*\).*/\1/p' <<-RAW
-		$raw
-	RAW
+	raw="$raw" key="$1" perl -e '
+		my @lines = split /\r\n/, $ENV{raw};
+		$ENV{raw} = @lines[$#lines];
+		my @keypairs = split /&/, $ENV{raw};
+		for (@keypairs) {
+			if ($_ !~ /^$ENV{key}=/) {
+				next;
+			}
+			my @pair = split /=/, $_;
+			$pair[1] =~ s/.*\b$ENV{key}=([^&]*).*/$1/;
+			$pair[1] =~ s/%(..)/chr(hex($1))/eg;
+			print $pair[1];
+			last;
+		}
+	'
+}
+
+# $1 - Cookie name
+cookie() {
+	raw="$raw" cookie="$1" perl -e '
+		my @lines = split /\r\n/, $ENV{raw};
+		foreach (@lines) {
+			if ($_ !~ /^Cookie: /) {
+				next;
+			}
+			if ($_ !~ s/.*$ENV{cookie}=([^&]*).*/$1/) {
+				next;
+			}
+			$_ =~ s/%(..)/chr(hex($1))/eg;
+			print $_;
+			exit;
+		}
+	'
 }
 
 ###############################################################################
@@ -151,7 +181,25 @@ route() {
 
 	case "$2" in
 	*/:*)
-		"$3" "$(awk -vtgt="$2" -vrecv="$path" 'BEGIN { nb_tgts = split(tgt, tgts, "/"); nb_recvs = split(recv, recvs, "/"); if (nb_tgts != nb_recvs) { exit 1; } for (i = 1; i <= nb_tgts; i += 1) { if (substr(tgts[i], 1, 1) ~ /:/) { param = recvs[i]; continue; } if (tgts[i] != recvs[i]) { exit 1; } } print param; exit; }' /dev/null)" && log_info "$method Route: $3: $path$query"
+		"$3" "$(awk -vtgt="$2" -vrecv="$path" \
+			'BEGIN {
+				nb_tgts = split(tgt, tgts, "/")
+				nb_recvs = split(recv, recvs, "/")
+				if (nb_tgts != nb_recvs) {
+					exit 1
+				}
+				for (i = 1; i <= nb_tgts; i += 1) {
+					if (substr(tgts[i], 1, 1) ~ /:/) {
+						param = recvs[i]
+						continue
+					}
+					if (tgts[i] != recvs[i]) {
+						exit 1
+					}
+				}
+				print param
+				exit
+			}' /dev/null)" && log_info "$method Route: $3: $path$query"
 		return
 		;;
 	esac
@@ -175,19 +223,66 @@ fallback() {
 # Consumer code
 ###############################################################################
 
-handle_get() {
-	sqlite3 "$DATABASE" "SELECT json_group_object('todos', (SELECT json_group_array(json_object('id', id, 'content', todo)) FROM todo))" |
+index() {
+	# TODO: Most likely bad logic because this will render the todo list for
+	# users have a invalid session cookie
+	printf "
+		SELECT json_object('todos', (SELECT json_group_array(json_object('id', T.id, 'content', T.todo)) FROM todo T
+		INNER JOIN user U ON T.user_id = U.id
+		INNER JOIN user_session US ON U.id = US.user_id
+		WHERE US.id = %d), 'user', %d)" "$(cookie session_id)" "$(cookie session_id)" |
+		sqlite3 "$DATABASE" |
 		j2 -f json ./templates/index.html - |
 		respond_html
 }
 
-handle_post() {
-	sqlite3 "$DATABASE" "INSERT INTO todo(todo) VALUES ('$(data todo)')"
+login() {
+	j2 ./templates/login.html | respond_html
+}
+
+login_post() {
+	if [ -z "$(sqlite3 "$DATABASE" "SELECT 1 FROM user WHERE email = '$(data email)' AND password = '$(data password)'")" ]; then
+		email=$(data email) password=$(data password) login
+		return
+	fi
+
+	# 604800 seconds = 1 week
+	add_field 'Set-Cookie' "session_id=$(printf "INSERT INTO user_session(user_id) VALUES ((SELECT id FROM user WHERE email = '%s')) RETURNING id" "$(data email)" | sqlite3 "$DATABASE"); HttpOnly; Max-Age=604800"
+	redirect /
+}
+
+logout() {
+	printf 'DELETE FROM user_session WHERE id = %d' "$(cookie session_id)" | sqlite3 "$DATABASE"
+	add_field 'Set-Cookie' 'session_id=; Max-Age: 0'
+	redirect /
+}
+
+signup() {
+	j2 ./templates/signup.html | respond_html
+}
+
+signup_post() {
+	if test -z \
+		"$(email="$(data email)" password="$(data password)" confirm_password="$(data confirm_password)" \
+			perl -e '
+				if ($ENV{password} ne $ENV{confirm_password}) {
+					exit;
+				}
+				printf "INSERT INTO user(email, password) VALUES ('\''%s'\'', '\''%s'\'') RETURNING id", $ENV{email}, $ENV{password};
+			' | sqlite3 "$DATABASE")"; then
+		email=$(data email) password=$(data password) confirm_password=$(data confirm_password) signup
+		return
+	fi
+	redirect /login
+}
+
+add_todo() {
+	printf "INSERT INTO todo(todo, user_id) VALUES ('%s', (SELECT user_id FROM user_session WHERE id = %d))" "$(data todo)" "$(cookie session_id)" | sqlite3 "$DATABASE"
 	redirect /
 }
 
 # $1 - Path parameter: Todo id
-handle_edit_get() {
+edit_todo_get() {
 	[ -z "$1" ] && return 1
 
 	sqlite3 "$DATABASE" "SELECT json_object('id', id, 'content', todo) FROM todo WHERE id = '$1'" |
@@ -196,14 +291,14 @@ handle_edit_get() {
 }
 
 # $1 - Path parameter: Todo id
-handle_edit_post() {
+edit_todo() {
 	[ -z "$1" ] && return 1
 
 	sqlite3 "$DATABASE" "UPDATE todo SET todo = '$(data content)' WHERE id = '$1'"
 	redirect /
 }
 
-handle_delete_get() {
+delete_todo() {
 	[ -z "$1" ] && return 1
 
 	sqlite3 "$DATABASE" "DELETE FROM todo WHERE id = '$1'"
@@ -211,11 +306,16 @@ handle_delete_get() {
 }
 
 false ||
-	route GET / handle_get ||
-	route POST / handle_post ||
-	route GET /:id/edit handle_edit_get ||
-	route POST /:id/edit handle_edit_post ||
-	route GET /:id/delete handle_delete_get ||
+	route GET / index ||
+	route GET /login login ||
+	route POST /login login_post ||
+	route GET /signup signup ||
+	route POST /signup signup_post ||
+	route GET /logout logout ||
+	route POST / add_todo ||
+	route GET /:id/edit edit_todo_get ||
+	route POST /:id/edit edit_todo ||
+	route GET /:id/delete delete_todo ||
 	catchall GET serve_static ||
 	catchall GET serve_404 ||
 	fallback

@@ -3,16 +3,17 @@
 {% set title = "Index" %}
 
 {% block body %}
-  <h1>todosh</h1>
-  <form action="/" method="POST">
-    <label for="todo">Add todo</label>
-    <input type="text" name="todo" id="todo" />
-    <input type="submit" value="Submit" />
-  </form>
+  {% if user %}
+    <form action="/" method="POST">
+      <label for="todo">Add todo</label>
+      <input type="text" name="todo" id="todo" required />
+      <input type="submit" value="Add" />
+    </form>
 
-  <ul>
-    {% for todo in todos %}
-      <li>{{ todo.content }} (<a href="/{{ todo.id }}/edit">Edit</a>, <a href="/{{ todo.id }}/delete">Delete</a>)</li>
-    {% endfor %}
-  </ul>
+    <ul>
+      {% for todo in todos %}
+        <li>{{ todo.content }} (<a href="/{{ todo.id }}/edit">Edit</a>, <a href="/{{ todo.id }}/delete">Delete</a>)</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 {% endblock %}
