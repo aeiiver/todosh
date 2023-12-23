@@ -59,4 +59,4 @@ Environment variables are set in `/.env`.
 ### License
 
 MIT License or Public Domain, whichever fits your requirements. See
-(`LICENSE`)[./LICENSE].
+[`LICENSE`](./LICENSE).
