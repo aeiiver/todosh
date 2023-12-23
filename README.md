@@ -55,3 +55,8 @@ Environment variables are set in `/.env`.
 # Run the server
 ./server.sh
 ```
+
+### License
+
+MIT License or Public Domain, whichever fits your requirements. See
+(`LICENSE`)[./LICENSE].
